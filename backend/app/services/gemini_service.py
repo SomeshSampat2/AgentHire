@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 class GeminiService:
     def __init__(self):
         """Initialize Gemini service with API key and model configuration"""
-        if not settings.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is required")
+        if not settings.validate_gemini_api_key():
+            raise ValueError("GEMINI_API_KEY is required and must not be empty")
         
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
