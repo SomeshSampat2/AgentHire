@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # API Configuration
-    GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     
     # File Upload Configuration
     UPLOAD_DIR: str = "./uploads"
@@ -45,6 +45,10 @@ class Settings(BaseSettings):
             return False
         extension = filename.rsplit('.', 1)[-1].lower()
         return extension in self.allowed_extensions_list
+
+    def validate_gemini_api_key(self) -> bool:
+        """Validate that GEMINI_API_KEY is provided and not empty"""
+        return bool(self.GEMINI_API_KEY and self.GEMINI_API_KEY.strip())
 
 
 # Global settings instance
