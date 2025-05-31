@@ -13,7 +13,7 @@ interface AnalysisState {
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null)
-  const [jobUrl, setJobUrl] = useState('')
+  const [jobDescription, setJobDescription] = useState('')
   const [analysis, setAnalysis] = useState<AnalysisState>({
     analyzing: false,
     results: null,
@@ -60,23 +60,19 @@ export default function Home() {
     }
   }
 
-  const validateJobUrl = (url: string): boolean => {
-    try {
-      new URL(url)
-      return true
-    } catch {
-      return false
-    }
-  }
-
   const handleAnalyze = async () => {
     if (!file) {
       toast.error('Please upload a resume first')
       return
     }
 
-    if (jobUrl.trim() && !validateJobUrl(jobUrl)) {
-      toast.error('Please enter a valid job description URL')
+    if (!jobDescription.trim()) {
+      toast.error('Job description is required')
+      return
+    }
+
+    if (jobDescription.trim().length < 50) {
+      toast.error('Please provide a more detailed job description (minimum 50 characters)')
       return
     }
 
@@ -85,9 +81,9 @@ export default function Home() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('job_url', jobUrl.trim())
+      formData.append('job_description', jobDescription.trim())
 
-      const response = await fetch('/api/comprehensive-analysis', {
+      const response = await fetch('http://localhost:8000/api/comprehensive-analysis', {
         method: 'POST',
         body: formData,
       })
@@ -118,7 +114,7 @@ export default function Home() {
 
   const handleNewAnalysis = () => {
     setFile(null)
-    setJobUrl('')
+    setJobDescription('')
     setAnalysis({ analyzing: false, results: null, extractedUrls: null, analysisDetails: null })
   }
 
@@ -252,7 +248,7 @@ export default function Home() {
               AI-Powered Candidate Analysis
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Upload a resume and job description URL for comprehensive AI analysis with automatic profile enrichment
+              Upload a resume and job description for comprehensive AI analysis with automatic profile enrichment
             </p>
           </div>
 
@@ -309,27 +305,31 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Job URL Section */}
+              {/* Job Description Section */}
               <div className="mb-8">
-                <label htmlFor="job-url" className="block text-lg font-semibold text-gray-900 mb-4">
-                  2. Job Description URL (Optional)
+                <label htmlFor="job-description" className="block text-lg font-semibold text-gray-900 mb-4">
+                  2. Job Description (Required) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
-                  <input
-                    type="url"
-                    id="job-url"
-                    value={jobUrl}
-                    onChange={(e) => setJobUrl(e.target.value)}
-                    placeholder="https://example.com/job-posting"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-lg"
+                  <textarea
+                    id="job-description"
+                    value={jobDescription}
+                    onChange={(e) => setJobDescription(e.target.value)}
+                    placeholder="Paste the complete job description here including role responsibilities, required skills, qualifications, etc..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm min-h-[200px] resize-y"
+                    required
+                    rows={8}
                   />
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                  <div className="absolute top-3 right-3">
                     <FileText className="h-5 w-5 text-gray-400" />
                   </div>
                 </div>
                 <p className="mt-2 text-sm text-gray-600">
-                  AI will extract job requirements from any job posting URL. Leave blank for general resume analysis.
+                  <span className="text-red-600 font-medium">Required:</span> Paste the complete job description to provide accurate matching and scoring. Include role details, requirements, and qualifications.
                 </p>
+                <div className="mt-2 text-xs text-gray-500">
+                  Characters: {jobDescription.length} / 50 minimum
+                </div>
               </div>
 
               {/* AI Features Info */}
@@ -344,7 +344,7 @@ export default function Home() {
                   </div>
                   <div className="flex items-start">
                     <span className="inline-block w-2 h-2 bg-indigo-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                    <span>Intelligent job requirements parsing from any job posting website</span>
+                    <span>Intelligent parsing and analysis of job description requirements</span>
                   </div>
                   <div className="flex items-start">
                     <span className="inline-block w-2 h-2 bg-indigo-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
@@ -352,7 +352,7 @@ export default function Home() {
                   </div>
                   <div className="flex items-start">
                     <span className="inline-block w-2 h-2 bg-indigo-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                    <span>Detailed scoring with interview recommendations</span>
+                    <span>Job-specific scoring with hiring recommendations</span>
                   </div>
                 </div>
               </div>
@@ -360,10 +360,10 @@ export default function Home() {
               {/* Analyze Button */}
               <button
                 onClick={handleAnalyze}
-                disabled={!file || analysis.analyzing}
+                disabled={!file || !jobDescription.trim() || jobDescription.trim().length < 50 || analysis.analyzing}
                 className={`
                   w-full py-4 px-6 rounded-lg text-lg font-semibold transition-all
-                  ${!file || analysis.analyzing
+                  ${!file || !jobDescription.trim() || jobDescription.trim().length < 50 || analysis.analyzing
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
                   }
@@ -382,10 +382,19 @@ export default function Home() {
                 )}
               </button>
 
-              {!file && (
+              {(!file || !jobDescription.trim() || jobDescription.trim().length < 50) && (
                 <div className="mt-4 flex items-center justify-center text-amber-600 bg-amber-50 rounded-lg p-3">
                   <AlertCircle className="h-5 w-5 mr-2" />
-                  <span className="text-sm">Please upload a resume to continue</span>
+                  <span className="text-sm">
+                    {!file && !jobDescription.trim() 
+                      ? 'Please upload a resume and provide a job description' 
+                      : !file 
+                        ? 'Please upload a resume to continue'
+                        : !jobDescription.trim()
+                          ? 'Please provide a job description to continue'
+                          : 'Job description must be at least 50 characters'
+                    }
+                  </span>
                 </div>
               )}
             </div>
@@ -405,9 +414,9 @@ export default function Home() {
             <div className="text-center">
               <div className="bg-white rounded-lg p-6 shadow-md">
                 <FileText className="h-8 w-8 text-indigo-600 mx-auto mb-3" />
-                <h3 className="font-semibold text-gray-900 mb-2">URL Analysis</h3>
+                <h3 className="font-semibold text-gray-900 mb-2">Job Analysis</h3>
                 <p className="text-sm text-gray-600">
-                  Gemini AI reads job postings from any website and extracts requirements
+                  Gemini AI analyzes job description text and extracts detailed requirements
                 </p>
               </div>
             </div>
