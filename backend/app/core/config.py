@@ -13,13 +13,13 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: str = "pdf,docx,txt"
     
     # CORS Configuration
-    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001"
     
     # Debug Mode
     DEBUG: bool = True
     
     # Gemini Model Configuration
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
     GEMINI_TEMPERATURE: float = 0.1
     GEMINI_MAX_OUTPUT_TOKENS: int = 2048
     
@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Allow extra fields in environment
 
     @property
     def cors_origins_list(self) -> List[str]:

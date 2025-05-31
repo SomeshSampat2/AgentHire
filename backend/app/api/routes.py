@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
 
 from app.models.schemas import (
@@ -24,19 +24,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.options("/comprehensive-analysis")
+async def comprehensive_analysis_options():
+    """Handle CORS preflight for comprehensive analysis endpoint"""
+    return {"message": "OK"}
+
+
 @router.post("/comprehensive-analysis")
 async def comprehensive_analysis(
     file: UploadFile = File(...),
-    job_url: str = ""
+    job_description: str = Form(...)
 ):
     """
     Single endpoint for comprehensive candidate analysis
-    - Upload resume and job description URL
-    - AI extracts job requirements and social media URLs
-    - Performs complete analysis with scoring
+    - Upload resume and job description text (REQUIRED)
+    - AI analyzes candidate against specific job requirements
+    - Performs complete analysis with scoring based on job description
     """
     try:
-        logger.info(f"Starting comprehensive analysis for file: {file.filename}, job_url: {job_url}")
+        logger.info(f"Starting comprehensive analysis for file: {file.filename}, job_description length: {len(job_description)}")
+        
+        # Validate required job description
+        if not job_description.strip():
+            raise HTTPException(
+                status_code=400, 
+                detail="Job description is required for accurate candidate analysis"
+            )
+        
+        if len(job_description.strip()) < 50:
+            raise HTTPException(
+                status_code=400, 
+                detail="Job description must be at least 50 characters long for meaningful analysis"
+            )
         
         # Step 1: Save and extract text from resume
         success, message, file_id = await file_service.save_file(file)
@@ -62,44 +81,24 @@ async def comprehensive_analysis(
                 )
             raise HTTPException(status_code=500, detail=f"Failed to parse resume: {str(e)}")
         
-        # Step 3: Extract job description from URL
-        job_description = None
-        if job_url.strip():
-            logger.info(f"Extracting job description from URL: {job_url}")
-            try:
-                job_description = await gemini_service.extract_job_description_from_url(job_url)
-            except Exception as e:
-                logger.warning(f"Failed to extract job description from URL: {str(e)}")
-                # Continue with a basic job description
-                job_description = JobDescription(
-                    title="Position Analysis",
-                    company="Unknown Company",
-                    description="Job description could not be extracted from the provided URL. Manual review recommended.",
-                    required_skills=[],
-                    preferred_skills=[],
-                    experience_level="",
-                    education_requirements=[],
-                    location=""
-                )
-        else:
-            # Default job description if no URL provided
-            job_description = JobDescription(
-                title="General Analysis",
-                company="No Company Specified",
-                description="General resume analysis without specific job requirements.",
-                required_skills=[],
-                preferred_skills=[],
-                experience_level="",
-                education_requirements=[],
-                location=""
+        # Step 3: Parse job description text using AI
+        logger.info("Parsing job description text with AI...")
+        try:
+            job_description_parsed = await gemini_service.parse_job_description_text(job_description.strip())
+        except Exception as e:
+            logger.error(f"Failed to parse job description: {str(e)}")
+            file_service.cleanup_file(file_id)
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to parse job description: {str(e)}. Please provide a more detailed job description."
             )
 
-        # Step 4: Perform comprehensive analysis
+        # Step 4: Perform comprehensive analysis based on job description
         logger.info("Performing comprehensive AI analysis...")
         try:
             analysis_result = await gemini_service.comprehensive_candidate_analysis(
                 resume_data=resume_data,
-                job_description=job_description,
+                job_description=job_description_parsed,
                 profile_enrichment=None
             )
         except Exception as e:
@@ -112,22 +111,22 @@ async def comprehensive_analysis(
 
         # Step 5: Structure the response
         score_breakdown = ScoreBreakdown(
-            resume_match=analysis_result["score_breakdown"]["resume_match"],
+            resume_match=analysis_result["score_breakdown"].get("required_skills_match", 0),
             linkedin_score=0.0,  # Removed profile enrichment
             github_score=0.0,    # Removed profile enrichment
             portfolio_score=0.0, # Removed profile enrichment
             total_score=analysis_result["overall_score"],
-            explanation=analysis_result["detailed_analysis"]
+            explanation=analysis_result.get("detailed_job_fit_analysis", "Analysis completed")
         )
 
         candidate_analysis = CandidateAnalysis(
             candidate_name=resume_data.name or "Unknown Candidate",
             resume_data=resume_data,
-            job_description=job_description,
+            job_description=job_description_parsed,
             profile_enrichment=None,  # Removed profile enrichment
             score_breakdown=score_breakdown,
-            recommendations=analysis_result.get("hr_recommendations", []),  # Updated field name
-            red_flags=analysis_result.get("red_flags", []),
+            recommendations=analysis_result.get("interview_focus_areas", []),
+            red_flags=analysis_result.get("red_flags_for_this_role", []),
             analysis_timestamp=datetime.now()
         )
 
@@ -136,14 +135,20 @@ async def comprehensive_analysis(
 
         return {
             "success": True,
-            "message": "Comprehensive analysis completed successfully",
+            "message": f"Comprehensive analysis completed for {job_description_parsed.title} position",
             "analysis": candidate_analysis,
             "analysis_details": {
-                "strengths": analysis_result.get("strengths", []),
-                "weaknesses": analysis_result.get("weaknesses", []),
-                "missing_skills": analysis_result.get("missing_skills", []),
-                "fit_assessment": analysis_result.get("fit_assessment", "UNKNOWN"),
-                "suggested_interview_questions": analysis_result.get("suggested_interview_questions", [])  # Updated field name
+                "job_specific_scoring": analysis_result.get("score_breakdown", {}),
+                "skills_analysis": analysis_result.get("skills_analysis", {}),
+                "strengths_for_role": analysis_result.get("strengths_for_this_role", []),
+                "weaknesses_for_role": analysis_result.get("weaknesses_for_this_role", []),
+                "experience_match": analysis_result.get("experience_match_analysis", {}),
+                "education_analysis": analysis_result.get("education_analysis", {}),
+                "hiring_recommendation": analysis_result.get("hiring_recommendation", {}),
+                "interview_focus_areas": analysis_result.get("interview_focus_areas", []),
+                "onboarding_recommendations": analysis_result.get("onboarding_recommendations", []),
+                "salary_fit_assessment": analysis_result.get("salary_fit_assessment", ""),
+                "extracted_social_urls": social_urls
             }
         }
 
@@ -284,4 +289,22 @@ async def bulk_cleanup(max_age_hours: int = 24):
 
     except Exception as e:
         logger.error(f"Error during bulk cleanup: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error during bulk cleanup") 
+        raise HTTPException(status_code=500, detail="Internal server error during bulk cleanup")
+
+
+@router.get("/debug/api-key-status")
+async def debug_api_key_status():
+    """Debug endpoint to check API key status"""
+    from app.core.config import settings
+    try:
+        api_key = settings.GEMINI_API_KEY
+        is_valid = settings.validate_gemini_api_key()
+        return {
+            "api_key_configured": bool(api_key),
+            "api_key_length": len(api_key) if api_key else 0,
+            "api_key_preview": f"{api_key[:10]}..." if api_key and len(api_key) > 10 else "Not set",
+            "is_valid_format": is_valid,
+            "is_placeholder": api_key == "your_gemini_api_key_here"
+        }
+    except Exception as e:
+        return {"error": str(e)} 
