@@ -2,24 +2,33 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  async rewrites() {
+  
+  // Environment variables
+  env: {
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+  },
+  
+  // Output configuration for static export
+  output: 'standalone',
+  
+  // Image optimization configuration
+  images: {
+    unoptimized: true,
+  },
+  
+  // CORS headers for API routes
+  async headers() {
     return [
       {
         source: '/api/:path*',
-        destination: process.env.NODE_ENV === 'development' 
-          ? 'http://localhost:8000/api/:path*'
-          : 'http://backend:8000/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
+        ],
       },
-    ]
+    ];
   },
-  env: {
-    BACKEND_URL: process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:8000'
-      : 'http://backend:8000',
-  },
-  experimental: {
-    forceSwcTransforms: true,
-  },
-}
+};
 
-module.exports = nextConfig 
+module.exports = nextConfig; 

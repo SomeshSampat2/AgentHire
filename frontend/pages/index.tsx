@@ -83,7 +83,8 @@ export default function Home() {
       formData.append('file', file)
       formData.append('job_description', jobDescription.trim())
 
-      const response = await fetch('http://localhost:8000/api/comprehensive-analysis', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiUrl}/api/comprehensive-analysis`, {
         method: 'POST',
         body: formData,
       })

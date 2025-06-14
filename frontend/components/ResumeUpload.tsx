@@ -22,7 +22,8 @@ export default function ResumeUpload({ onUploadSuccess }: ResumeUploadProps) {
       const formData = new FormData()
       formData.append('file', file)
 
-      const response = await fetch('/api/upload-resume', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiUrl}/api/upload-resume`, {
         method: 'POST',
         body: formData,
       })
