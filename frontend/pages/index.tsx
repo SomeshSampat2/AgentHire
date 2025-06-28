@@ -1,68 +1,35 @@
 import { useState } from 'react'
 import Head from 'next/head'
-import { Upload, FileText, Zap, AlertCircle, CheckCircle } from 'lucide-react'
+import { Zap } from 'lucide-react'
 import toast, { Toaster } from 'react-hot-toast'
-import AnalysisResults from '@/components/AnalysisResults'
+import ResumeUpload from '../components/ResumeUpload'
+import CandidateRanking from '../components/CandidateRanking'
+import AnalysisResults from '../components/AnalysisResults'
+import { CandidateAnalysis, MultiCandidateResponse } from '../types'
 
 interface AnalysisState {
   analyzing: boolean
-  results: any
-  extractedUrls: any
-  analysisDetails: any
+  results: MultiCandidateResponse | null
+  selectedCandidateId: string | null
 }
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [jobDescription, setJobDescription] = useState('')
-  const [analysis, setAnalysis] = useState<AnalysisState>({
-    analyzing: false,
-    results: null,
-    extractedUrls: null,
-    analysisDetails: null
+  const [analysis, setAnalysis] = useState<AnalysisState>({ 
+    analyzing: false, 
+    results: null, 
+    selectedCandidateId: null 
   })
+  const [currentView, setCurrentView] = useState<'upload' | 'results' | 'candidate-detail'>('upload')
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0]
-    if (selectedFile) {
-      const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']
-      if (!validTypes.includes(selectedFile.type)) {
-        toast.error('Please upload a PDF, DOCX, or TXT file')
-        return
-      }
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        toast.error('File size must be less than 10MB')
-        return
-      }
-      setFile(selectedFile)
-      toast.success('Resume uploaded successfully!')
-    }
-  }
-
-  const handleDragOver = (event: React.DragEvent) => {
-    event.preventDefault()
-  }
-
-  const handleDrop = (event: React.DragEvent) => {
-    event.preventDefault()
-    const droppedFile = event.dataTransfer.files[0]
-    if (droppedFile) {
-      const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']
-      if (!validTypes.includes(droppedFile.type)) {
-        toast.error('Please upload a PDF, DOCX, or TXT file')
-        return
-      }
-      if (droppedFile.size > 10 * 1024 * 1024) {
-        toast.error('File size must be less than 10MB')
-        return
-      }
-      setFile(droppedFile)
-      toast.success('Resume uploaded successfully!')
-    }
+  const handleMultiFilesChange = (newFiles: File[]) => {
+    setFiles(newFiles)
   }
 
   const handleAnalyze = async () => {
-    if (!file) {
-      toast.error('Please upload a resume first')
+    if (files.length === 0) {
+      toast.error('Please upload at least one resume')
       return
     }
 
@@ -76,14 +43,16 @@ export default function Home() {
       return
     }
 
-    setAnalysis({ analyzing: true, results: null, extractedUrls: null, analysisDetails: null })
+    setAnalysis({ analyzing: true, results: null, selectedCandidateId: null })
 
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      files.forEach((file) => {
+        formData.append('files', file)
+      })
       formData.append('job_description', jobDescription.trim())
 
-      const response = await fetch('http://localhost:8000/api/comprehensive-analysis', {
+      const response = await fetch('http://localhost:8000/api/multi-candidate-analysis', {
         method: 'POST',
         body: formData,
       })
@@ -97,29 +66,43 @@ export default function Home() {
       if (result.success) {
         setAnalysis({
           analyzing: false,
-          results: result.analysis,
-          extractedUrls: result.extracted_urls,
-          analysisDetails: result.analysis_details
+          results: result,
+          selectedCandidateId: null
         })
-        toast.success('Analysis completed successfully!')
+        setCurrentView('results')
+        const candidateText = files.length === 1 ? 'candidate' : `${files.length} candidates`
+        toast.success(`Analysis completed for ${candidateText}!`)
       } else {
         throw new Error(result.message || 'Analysis failed')
       }
     } catch (error) {
       console.error('Analysis error:', error)
       toast.error(error instanceof Error ? error.message : 'Analysis failed')
-      setAnalysis({ analyzing: false, results: null, extractedUrls: null, analysisDetails: null })
+      setAnalysis({ analyzing: false, results: null, selectedCandidateId: null })
     }
   }
 
-  const handleNewAnalysis = () => {
-    setFile(null)
-    setJobDescription('')
-    setAnalysis({ analyzing: false, results: null, extractedUrls: null, analysisDetails: null })
+  const handleCandidateSelect = (candidateId: string) => {
+    setAnalysis(prev => ({ ...prev, selectedCandidateId: candidateId }))
+    setCurrentView('candidate-detail')
   }
 
-  // Show results if analysis is complete
-  if (analysis.results) {
+  const handleBackToRankings = () => {
+    setAnalysis(prev => ({ ...prev, selectedCandidateId: null }))
+    setCurrentView('results')
+  }
+
+  const handleNewAnalysis = () => {
+    setFiles([])
+    setJobDescription('')
+    setAnalysis({ analyzing: false, results: null, selectedCandidateId: null })
+    setCurrentView('upload')
+  }
+
+  // Show candidate rankings/results
+  if (currentView === 'results' && analysis.results?.multi_analysis) {
+    const isMultipleCandidates = analysis.results.multi_analysis.total_candidates > 1
+    
     return (
       <>
         <Head>
@@ -141,72 +124,15 @@ export default function Home() {
                     <p className="text-sm text-gray-600">AI-Powered Hiring Assistant</p>
                   </div>
                 </div>
-                <div className="flex items-center space-x-4">
-                  <button 
-                    onClick={handleNewAnalysis}
-                    className="btn-secondary"
-                  >
-                    New Analysis
-                  </button>
-                </div>
               </div>
             </div>
           </header>
 
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {/* Extracted URLs Display */}
-            {analysis.extractedUrls && Object.values(analysis.extractedUrls).some(url => url) && (
-              <div className="mb-8 bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">🔗 Extracted Profile URLs</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {analysis.extractedUrls.linkedin_url && (
-                    <div className="flex items-center p-3 bg-blue-50 rounded-lg">
-                      <span className="text-blue-600 font-medium">LinkedIn:</span>
-                      <a 
-                        href={analysis.extractedUrls.linkedin_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 text-blue-600 hover:underline truncate"
-                      >
-                        {analysis.extractedUrls.linkedin_url}
-                      </a>
-                    </div>
-                  )}
-                  {analysis.extractedUrls.github_url && (
-                    <div className="flex items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="text-gray-700 font-medium">GitHub:</span>
-                      <a 
-                        href={analysis.extractedUrls.github_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 text-gray-700 hover:underline truncate"
-                      >
-                        {analysis.extractedUrls.github_url}
-                      </a>
-                    </div>
-                  )}
-                  {analysis.extractedUrls.portfolio_url && (
-                    <div className="flex items-center p-3 bg-green-50 rounded-lg">
-                      <span className="text-green-600 font-medium">Portfolio:</span>
-                      <a 
-                        href={analysis.extractedUrls.portfolio_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-2 text-green-600 hover:underline truncate"
-                      >
-                        {analysis.extractedUrls.portfolio_url}
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Analysis Results */}
-            <AnalysisResults 
-              results={analysis.results} 
+            <CandidateRanking
+              multiAnalysis={analysis.results.multi_analysis}
+              onCandidateSelect={handleCandidateSelect}
               onNewAnalysis={handleNewAnalysis}
-              analysisDetails={analysis.analysisDetails}
             />
           </main>
         </div>
@@ -216,6 +142,100 @@ export default function Home() {
     )
   }
 
+  // Show individual candidate detail
+  if (currentView === 'candidate-detail' && analysis.results && analysis.selectedCandidateId) {
+    const candidateDetails = analysis.results.candidate_details[analysis.selectedCandidateId]
+    const selectedRanking = analysis.results.multi_analysis?.candidate_rankings.find(
+      c => c.candidate_id === analysis.selectedCandidateId
+    )
+
+    if (candidateDetails && selectedRanking) {
+      // Use the real CandidateAnalysis object from the backend
+      const candidateAnalysis = candidateDetails.candidate_analysis || {
+        candidate_name: selectedRanking.candidate_name,
+        resume_data: {} as any,
+        job_description: analysis.results.multi_analysis!.job_description,
+        score_breakdown: {
+          resume_match: candidateDetails.analysis_details?.job_specific_scoring?.required_skills_match || 0,
+          linkedin_score: 0,
+          github_score: 0,
+          portfolio_score: 0,
+          total_score: selectedRanking.total_score,
+          explanation: candidateDetails.analysis_details?.hiring_recommendation?.reasoning || ''
+        },
+        recommendations: candidateDetails.analysis_details?.interview_focus_areas || [],
+        red_flags: candidateDetails.analysis_details?.weaknesses_for_role || [],
+        analysis_timestamp: analysis.results.multi_analysis!.analysis_timestamp
+      }
+      
+      // Use the structured analysis details
+      const analysisDetails = candidateDetails.analysis_details || candidateDetails
+
+      return (
+        <>
+          <Head>
+            <title>{selectedRanking.candidate_name} - Analysis Details</title>
+            <meta name="description" content={`Detailed analysis for ${selectedRanking.candidate_name}`} />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <link rel="icon" href="/favicon.ico" />
+          </Head>
+
+          <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+            <header className="bg-white shadow-sm border-b">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex justify-between items-center py-6">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <h1 className="text-2xl font-bold text-gray-900">HireAgent</h1>
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm text-gray-600">AI-Powered Hiring Assistant</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-4">
+                    <button 
+                      onClick={handleBackToRankings}
+                      className="btn-secondary"
+                    >
+                      ← Back to {analysis.results?.multi_analysis?.total_candidates === 1 ? 'Results' : 'Rankings'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              {/* Candidate Header */}
+              <div className="bg-white rounded-lg shadow p-6 mb-8">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedRanking.candidate_name}</h2>
+                    <p className="text-gray-600">Rank #{selectedRanking.rank} • {selectedRanking.filename}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      {selectedRanking.total_score.toFixed(1)}/100
+                    </div>
+                    <p className="text-sm text-gray-600">Overall Score</p>
+                  </div>
+                </div>
+              </div>
+
+              <AnalysisResults 
+                results={candidateAnalysis} 
+                onNewAnalysis={handleNewAnalysis}
+                analysisDetails={analysisDetails}
+              />
+            </main>
+          </div>
+
+          <Toaster position="top-right" />
+        </>
+      )
+    }
+  }
+
+  // Main upload interface
   return (
     <>
       <Head>
@@ -248,61 +268,21 @@ export default function Home() {
               AI-Powered Candidate Analysis
             </h2>
             <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              Upload a resume and job description for comprehensive AI analysis with automatic profile enrichment
+              Upload one or multiple resumes for comprehensive AI analysis with automatic profile enrichment and intelligent ranking
             </p>
           </div>
 
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="p-8">
-              {/* File Upload Section */}
+              {/* Resume Upload Section */}
               <div className="mb-8">
                 <label className="block text-lg font-semibold text-gray-900 mb-4">
-                  1. Upload Resume
+                  1. Upload Resume{files.length !== 1 ? 's' : ''}
                 </label>
-                <div
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                  className={`
-                    border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
-                    ${file 
-                      ? 'border-green-400 bg-green-50' 
-                      : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
-                    }
-                  `}
-                >
-                  <input
-                    type="file"
-                    id="resume-upload"
-                    accept=".pdf,.docx,.txt"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <label htmlFor="resume-upload" className="cursor-pointer">
-                    {file ? (
-                      <div className="flex items-center justify-center">
-                        <CheckCircle className="h-8 w-8 text-green-500 mr-3" />
-                        <div>
-                          <p className="text-lg font-medium text-green-700">
-                            ✅ {file.name}
-                          </p>
-                          <p className="text-sm text-green-600">
-                            Click to change file
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <p className="text-lg font-medium text-gray-900 mb-2">
-                          Drag & drop your resume or click to browse
-                        </p>
-                        <p className="text-gray-600 mb-4">
-                          Supports PDF, DOCX, and TXT files up to 10MB
-                        </p>
-                      </div>
-                    )}
-                  </label>
-                </div>
+                
+                <ResumeUpload
+                  onMultiUploadSuccess={handleMultiFilesChange}
+                />
               </div>
 
               {/* Job Description Section */}
@@ -320,9 +300,6 @@ export default function Home() {
                     required
                     rows={8}
                   />
-                  <div className="absolute top-3 right-3">
-                    <FileText className="h-5 w-5 text-gray-400" />
-                  </div>
                 </div>
                 <p className="mt-2 text-sm text-gray-600">
                   <span className="text-red-600 font-medium">Required:</span> Paste the complete job description to provide accurate matching and scoring. Include role details, requirements, and qualifications.
@@ -352,7 +329,7 @@ export default function Home() {
                   </div>
                   <div className="flex items-start">
                     <span className="inline-block w-2 h-2 bg-indigo-400 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                    <span>Job-specific scoring with hiring recommendations</span>
+                    <span>{files.length > 1 ? 'Multi-candidate ranking and comparison' : 'Job-specific scoring with hiring recommendations'}</span>
                   </div>
                 </div>
               </div>
@@ -360,74 +337,40 @@ export default function Home() {
               {/* Analyze Button */}
               <button
                 onClick={handleAnalyze}
-                disabled={!file || !jobDescription.trim() || jobDescription.trim().length < 50 || analysis.analyzing}
+                disabled={
+                  files.length === 0 || 
+                  !jobDescription.trim() || 
+                  jobDescription.trim().length < 50 || 
+                  analysis.analyzing
+                }
                 className={`
                   w-full py-4 px-6 rounded-lg text-lg font-semibold transition-all
-                  ${!file || !jobDescription.trim() || jobDescription.trim().length < 50 || analysis.analyzing
+                  ${files.length === 0 || 
+                    !jobDescription.trim() || 
+                    jobDescription.trim().length < 50 || 
+                    analysis.analyzing
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 transform hover:scale-105'
                   }
                 `}
               >
                 {analysis.analyzing ? (
                   <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                    Analyzing with AI...
+                    <div className="loading-spinner mr-3"></div>
+                    Analyzing {files.length} {files.length === 1 ? 'candidate' : 'candidates'}...
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center">
-                    <Zap className="h-6 w-6 mr-2" />
-                    Start AI Analysis
-                  </div>
+                  `🚀 Analyze ${files.length} ${files.length === 1 ? 'Candidate' : 'Candidates'}`
                 )}
               </button>
 
-              {(!file || !jobDescription.trim() || jobDescription.trim().length < 50) && (
-                <div className="mt-4 flex items-center justify-center text-amber-600 bg-amber-50 rounded-lg p-3">
-                  <AlertCircle className="h-5 w-5 mr-2" />
-                  <span className="text-sm">
-                    {!file && !jobDescription.trim() 
-                      ? 'Please upload a resume and provide a job description' 
-                      : !file 
-                        ? 'Please upload a resume to continue'
-                        : !jobDescription.trim()
-                          ? 'Please provide a job description to continue'
-                          : 'Job description must be at least 50 characters'
-                    }
-                  </span>
-                </div>
+              {(files.length === 0 || !jobDescription.trim() || jobDescription.trim().length < 50) && (
+                <p className="text-center text-sm text-gray-500 mt-4">
+                  {files.length === 0 && 'Please upload at least one resume'}
+                  {files.length > 0 && !jobDescription.trim() && 'Please enter a job description'}
+                  {files.length > 0 && jobDescription.trim() && jobDescription.trim().length < 50 && 'Job description must be at least 50 characters'}
+                </p>
               )}
-            </div>
-          </div>
-
-          {/* Info Section */}
-          <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-6 shadow-md">
-                <Upload className="h-8 w-8 text-indigo-600 mx-auto mb-3" />
-                <h3 className="font-semibold text-gray-900 mb-2">Smart Upload</h3>
-                <p className="text-sm text-gray-600">
-                  AI automatically extracts all relevant information including social media URLs
-                </p>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-6 shadow-md">
-                <FileText className="h-8 w-8 text-indigo-600 mx-auto mb-3" />
-                <h3 className="font-semibold text-gray-900 mb-2">Job Analysis</h3>
-                <p className="text-sm text-gray-600">
-                  Gemini AI analyzes job description text and extracts detailed requirements
-                </p>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="bg-white rounded-lg p-6 shadow-md">
-                <Zap className="h-8 w-8 text-indigo-600 mx-auto mb-3" />
-                <h3 className="font-semibold text-gray-900 mb-2">Comprehensive Scoring</h3>
-                <p className="text-sm text-gray-600">
-                  Detailed analysis with strengths, weaknesses, and interview questions
-                </p>
-              </div>
             </div>
           </div>
         </main>
