@@ -1,8 +1,9 @@
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
+import uuid
 
 from app.models.schemas import (
     UploadResumeResponse, 
@@ -13,7 +14,11 @@ from app.models.schemas import (
     ErrorResponse,
     JobDescription,
     CandidateAnalysis,
-    ScoreBreakdown
+    ScoreBreakdown,
+    MultiCandidateAnalysis,
+    MultiCandidateResponse,
+    CandidateRanking,
+    CandidateDetailResponse
 )
 from app.services.file_service import file_service
 from app.services.gemini_service import gemini_service
@@ -22,6 +27,227 @@ from app.services.scraping_service import scraping_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.options("/multi-candidate-analysis")
+async def multi_candidate_analysis_options():
+    """Handle CORS preflight for multi-candidate analysis endpoint"""
+    return {"message": "OK"}
+
+
+@router.post("/multi-candidate-analysis")
+async def multi_candidate_analysis(
+    files: List[UploadFile] = File(...),
+    job_description: str = Form(...)
+):
+    """
+    Multi-candidate analysis endpoint
+    - Upload multiple resumes (max 10) and job description text (REQUIRED)
+    - AI analyzes all candidates against the job requirements
+    - Returns ranked candidates with overall analysis
+    """
+    try:
+        logger.info(f"Starting multi-candidate analysis for {len(files)} files, job_description length: {len(job_description)}")
+        
+        # Validate inputs
+        if not job_description.strip():
+            raise HTTPException(
+                status_code=400, 
+                detail="Job description is required for accurate candidate analysis"
+            )
+        
+        if len(job_description.strip()) < 50:
+            raise HTTPException(
+                status_code=400, 
+                detail="Job description must be at least 50 characters long for meaningful analysis"
+            )
+        
+        if len(files) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one resume file is required"
+            )
+        
+        if len(files) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 10 resume files allowed"
+            )
+
+        # Parse job description once
+        logger.info("Parsing job description text with AI...")
+        try:
+            job_description_parsed = await gemini_service.parse_job_description_text(job_description.strip())
+        except Exception as e:
+            logger.error(f"Failed to parse job description: {str(e)}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Failed to parse job description: {str(e)}. Please provide a more detailed job description."
+            )
+
+        # Process each resume file
+        candidate_analyses = []
+        candidate_details = {}
+        file_ids_to_cleanup = []
+
+        for i, file in enumerate(files):
+            try:
+                logger.info(f"Processing file {i+1}/{len(files)}: {file.filename}")
+                
+                # Step 1: Save and extract text from resume
+                success, message, file_id = await file_service.save_file(file)
+                if not success:
+                    logger.warning(f"Failed to save file {file.filename}: {message}")
+                    continue
+                
+                file_ids_to_cleanup.append(file_id)
+
+                success, message, resume_text = await file_service.extract_text_from_file(file_id)
+                if not success:
+                    logger.warning(f"Failed to extract text from {file.filename}: {message}")
+                    continue
+
+                # Step 2: Parse resume and extract social media URLs
+                try:
+                    resume_result = await gemini_service.parse_resume_with_urls(resume_text)
+                    resume_data = resume_result["resume_data"]
+                    social_urls = resume_result["social_urls"]
+                except Exception as e:
+                    logger.warning(f"Failed to parse resume {file.filename}: {str(e)}")
+                    continue
+
+                # Step 3: Perform comprehensive analysis
+                try:
+                    analysis_result = await gemini_service.comprehensive_candidate_analysis(
+                        resume_data=resume_data,
+                        job_description=job_description_parsed,
+                        profile_enrichment=None
+                    )
+                except Exception as e:
+                    logger.warning(f"Analysis failed for {file.filename}: {str(e)}")
+                    continue
+
+                # Step 4: Structure the candidate analysis
+                candidate_id = str(uuid.uuid4())
+                
+                score_breakdown = ScoreBreakdown(
+                    resume_match=analysis_result["score_breakdown"].get("required_skills_match", 0),
+                    linkedin_score=0.0,
+                    github_score=0.0,
+                    portfolio_score=0.0,
+                    total_score=analysis_result["overall_score"],
+                    explanation=analysis_result.get("detailed_job_fit_analysis", "Analysis completed")
+                )
+
+                candidate_analysis = CandidateAnalysis(
+                    candidate_name=resume_data.name or f"Candidate {i+1}",
+                    resume_data=resume_data,
+                    job_description=job_description_parsed,
+                    profile_enrichment=None,
+                    score_breakdown=score_breakdown,
+                    recommendations=analysis_result.get("interview_focus_areas", []),
+                    red_flags=analysis_result.get("red_flags_for_this_role", []),
+                    analysis_timestamp=datetime.now()
+                )
+
+                # Store candidate analysis and details
+                candidate_analyses.append((candidate_id, candidate_analysis, file.filename))
+                candidate_details[candidate_id] = {
+                    "candidate_analysis": candidate_analysis,
+                    "analysis_details": {
+                        "job_specific_scoring": analysis_result.get("score_breakdown", {}),
+                        "skills_analysis": analysis_result.get("skills_analysis", {}),
+                        "strengths_for_role": analysis_result.get("strengths_for_this_role", []),
+                        "weaknesses_for_role": analysis_result.get("weaknesses_for_this_role", []),
+                        "experience_match": analysis_result.get("experience_match_analysis", {}),
+                        "education_analysis": analysis_result.get("education_analysis", {}),
+                        "hiring_recommendation": analysis_result.get("hiring_recommendation", {}),
+                        "interview_focus_areas": analysis_result.get("interview_focus_areas", []),
+                        "onboarding_recommendations": analysis_result.get("onboarding_recommendations", []),
+                        "salary_fit_assessment": analysis_result.get("salary_fit_assessment", ""),
+                        "extracted_social_urls": social_urls
+                    }
+                }
+
+            except Exception as e:
+                logger.error(f"Error processing file {file.filename}: {str(e)}")
+                continue
+
+        # Clean up uploaded files
+        for file_id in file_ids_to_cleanup:
+            file_service.cleanup_file(file_id)
+
+        if not candidate_analyses:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid resume files could be processed. Please check file formats and content."
+            )
+
+        # Sort candidates by total score (highest first) and create rankings
+        candidate_analyses.sort(key=lambda x: x[1].score_breakdown.total_score, reverse=True)
+        
+        candidate_rankings = []
+        for rank, (candidate_id, analysis, filename) in enumerate(candidate_analyses, 1):
+            # Get key strengths from analysis details
+            key_strengths = candidate_details[candidate_id]["analysis_details"].get("strengths_for_role", [])[:3]  # Top 3 strengths
+            
+            # Create brief summary
+            score = analysis.score_breakdown.total_score
+            if score >= 80:
+                summary = "Excellent fit for this role"
+            elif score >= 70:
+                summary = "Strong candidate with good potential"
+            elif score >= 60:
+                summary = "Suitable candidate with some areas for development"
+            else:
+                summary = "May require significant development for this role"
+
+            ranking = CandidateRanking(
+                candidate_id=candidate_id,
+                candidate_name=analysis.candidate_name or f"Candidate {rank}",
+                filename=filename,
+                total_score=analysis.score_breakdown.total_score,
+                rank=rank,
+                key_strengths=key_strengths,
+                brief_summary=summary
+            )
+            candidate_rankings.append(ranking)
+
+        # Create analysis summary
+        scores = [analysis.score_breakdown.total_score for _, analysis, _ in candidate_analyses]
+        analysis_summary = {
+            "average_score": sum(scores) / len(scores) if scores else 0,
+            "highest_score": max(scores) if scores else 0,
+            "lowest_score": min(scores) if scores else 0,
+            "candidates_above_70": len([s for s in scores if s >= 70]),
+            "candidates_above_80": len([s for s in scores if s >= 80])
+        }
+
+        # Create multi-candidate analysis result
+        multi_analysis = MultiCandidateAnalysis(
+            job_description=job_description_parsed,
+            total_candidates=len(candidate_analyses),
+            candidate_rankings=candidate_rankings,
+            analysis_summary=analysis_summary,
+            analysis_timestamp=datetime.now()
+        )
+
+        return MultiCandidateResponse(
+            success=True,
+            message=f"Multi-candidate analysis completed for {len(candidate_analyses)} candidates",
+            multi_analysis=multi_analysis,
+            candidate_details=candidate_details
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in multi-candidate analysis: {str(e)}")
+        # Clean up files if they exist
+        if 'file_ids_to_cleanup' in locals():
+            for file_id in file_ids_to_cleanup:
+                file_service.cleanup_file(file_id)
+        raise HTTPException(status_code=500, detail=f"Multi-candidate analysis failed: {str(e)}")
 
 
 @router.options("/comprehensive-analysis")

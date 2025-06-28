@@ -109,6 +109,50 @@ export interface CandidateAnalysis {
   analysis_timestamp: string;
 }
 
+// New types for multi-candidate functionality
+export interface CandidateRanking {
+  candidate_id: string;
+  candidate_name: string;
+  filename: string;
+  total_score: number;
+  rank: number;
+  key_strengths: string[];
+  brief_summary: string;
+}
+
+export interface MultiCandidateAnalysis {
+  job_description: JobDescription;
+  total_candidates: number;
+  candidate_rankings: CandidateRanking[];
+  analysis_summary: {
+    average_score: number;
+    highest_score: number;
+    lowest_score: number;
+    candidates_above_70: number;
+    candidates_above_80: number;
+  };
+  analysis_timestamp: string;
+}
+
+export interface MultiCandidateResponse {
+  success: boolean;
+  message: string;
+  multi_analysis?: MultiCandidateAnalysis;
+  candidate_details: { 
+    [key: string]: {
+      candidate_analysis: CandidateAnalysis;
+      analysis_details: any;
+    } 
+  };
+}
+
+export interface CandidateDetailResponse {
+  success: boolean;
+  message: string;
+  candidate_analysis?: CandidateAnalysis;
+  analysis_details?: any;
+}
+
 // API Response Types
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -171,7 +215,9 @@ export type AnalysisStep =
   | 'job-description'
   | 'profile-urls'
   | 'analyzing'
-  | 'results';
+  | 'results'
+  | 'multi-results'
+  | 'candidate-detail';
 
 export interface AnalysisProgress {
   currentStep: AnalysisStep;

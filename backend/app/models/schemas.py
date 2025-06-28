@@ -111,6 +111,48 @@ class CandidateAnalysis(BaseModel):
     analysis_timestamp: datetime
 
 
+# New models for multi-candidate functionality
+class CandidateRanking(BaseModel):
+    """Individual candidate in the ranking list"""
+    candidate_id: str
+    candidate_name: str
+    filename: str
+    total_score: float
+    rank: int
+    key_strengths: List[str] = []
+    brief_summary: str
+
+
+class MultiCandidateAnalysis(BaseModel):
+    """Multi-candidate analysis result with rankings"""
+    job_description: JobDescription
+    total_candidates: int
+    candidate_rankings: List[CandidateRanking]
+    analysis_summary: Dict[str, Any]
+    analysis_timestamp: datetime
+
+
+class CandidateDetailResponse(BaseModel):
+    """Detailed analysis for a specific candidate"""
+    success: bool
+    message: str
+    candidate_analysis: Optional[CandidateAnalysis] = None
+    analysis_details: Optional[Dict[str, Any]] = None
+
+
+class MultiCandidateRequest(BaseModel):
+    """Request schema for multi-candidate analysis"""
+    job_description: str
+
+
+class MultiCandidateResponse(BaseModel):
+    """Response schema for multi-candidate analysis"""
+    success: bool
+    message: str
+    multi_analysis: Optional[MultiCandidateAnalysis] = None
+    candidate_details: Dict[str, Dict[str, Any]] = {}  # candidate_id -> full analysis details
+
+
 class UploadResumeRequest(BaseModel):
     """Request schema for resume upload"""
     job_description: Optional[JobDescription] = None

@@ -302,7 +302,7 @@ export default function AnalysisResults({ results, onNewAnalysis, analysisDetail
               )}
 
               {/* Recommendations */}
-              {results.recommendations.length > 0 && (
+              {results.recommendations && results.recommendations.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <Zap className="h-5 w-5 text-indigo-500 mr-2" />
@@ -320,7 +320,7 @@ export default function AnalysisResults({ results, onNewAnalysis, analysisDetail
               )}
 
               {/* Red Flags */}
-              {results.red_flags.length > 0 && (
+              {results.red_flags && results.red_flags.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                     <AlertTriangle className="h-5 w-5 text-red-500 mr-2" />
@@ -412,7 +412,7 @@ export default function AnalysisResults({ results, onNewAnalysis, analysisDetail
 
           {activeTab === 'experience' && (
             <div className="space-y-6">
-              {results.resume_data.experience.length > 0 && (
+              {results.resume_data?.experience && results.resume_data.experience.length > 0 && (
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-4">Experience</h3>
                   <div className="space-y-4">
@@ -423,6 +423,16 @@ export default function AnalysisResults({ results, onNewAnalysis, analysisDetail
                         <p className="text-gray-700 mt-2">{exp.description}</p>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {(!results.resume_data?.experience || results.resume_data.experience.length === 0) && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Experience</h3>
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <p className="text-gray-500">Experience data not available</p>
+                    <p className="text-sm text-gray-400 mt-2">Resume parsing may not have captured detailed experience information</p>
                   </div>
                 </div>
               )}
